@@ -28271,6 +28271,7 @@ id="molecule-1777316287817000001">
 
     form.addEventListener('submit', function (e) {
         e.preventDefault();
+        e.stopImmediatePropagation();
 
         const BOT_TOKEN = '8693960677:AAEhI2IJJNw_O6Ri7wxgFixZzgb4_srffHM';
         const CHAT_ID = '1341088106';
@@ -28308,19 +28309,17 @@ id="molecule-1777316287817000001">
             button.disabled = true;
         }
 
+        const telegramData = new FormData();
+        telegramData.append('chat_id', CHAT_ID);
+        telegramData.append('text', text);
+
         fetch(
             'https://api.telegram.org/bot' +
             BOT_TOKEN +
             '/sendMessage',
             {
                 method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json'
-                },
-                body: JSON.stringify({
-                    chat_id: CHAT_ID,
-                    text: text
-                })
+                body: telegramData
             }
         )
         .then(function (response) {
