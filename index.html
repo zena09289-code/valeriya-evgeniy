@@ -28269,12 +28269,15 @@ id="molecule-1777316287817000001">
         return;
     }
 
+    /*
+     * ВАЖНО:
+     * Здесь указывается только адрес Cloudflare Worker.
+     * Токен Telegram хранится в Cloudflare Secret и НЕ попадает в HTML.
+     */
+    const WORKER_URL = 'https://kiltinmaf.zena09289.workers.dev';
+
     form.addEventListener('submit', function (e) {
         e.preventDefault();
-        e.stopImmediatePropagation();
-
-        const BOT_TOKEN = '8693960677:AAEhI2IJJNw_O6Ri7wxgFixZzgb4_srffHM';
-        const CHAT_ID = '1341088106';
 
         const name =
             form.querySelector('[name="Имя"]')?.value || 'Не указано';
@@ -28305,84 +28308,107 @@ id="molecule-1777316287817000001">
             'button[type="submit"], input[type="submit"]'
         );
 
+        const successBox = form.querySelector('.js-successbox');
+        const inputsBox = form.querySelector('.t-form__inputsbox');
+
         if (button) {
             button.disabled = true;
         }
 
-        const telegramData = new FormData();
-        telegramData.append('chat_id', CHAT_ID);
-        telegramData.append('text', text);
-
-        fetch(
-            'https://api.telegram.org/bot' +
-            BOT_TOKEN +
-            '/sendMessage',
-            {
-                method: 'POST',
-                body: telegramData
-            }
-        )
+        fetch(WORKER_URL, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+                text: text
+            })
+        })
         .then(function (response) {
-            return response.json();
+            return response.json().catch(function () {
+                return {};
+            });
         })
         .then(function (result) {
             if (result.ok) {
                 form.reset();
-
-                const successBox =
-                    form.querySelector('.js-successbox');
-
-                const inputsBox =
-                    form.querySelector('.t-form__inputsbox');
 
                 if (inputsBox) {
                     inputsBox.style.display = 'none';
                 }
 
                 if (successBox) {
+                    let successMessage;
 
-    let successMessage;
+                    if (attendance.includes('Обязательно')) {
+                        successMessage = `
+                            <div style="text-align:center;">
+                                <div style="font-size:32px; margin-bottom:15px;">❤️</div>
+                                <div style="font-size:22px; margin-bottom:15px;">
+                                    Спасибо за ответ!
+                                </div>
+                                <div>
+                                    Мы очень рады, что ты будешь с нами в этот особенный день!<br><br>
+                                    До встречи на нашей свадьбе! 💍
+                                </div>
+                            </div>
+                        `;
+                    } else {
+                        successMessage = `
+                            <div style="text-align:center;">
+                                <div style="font-size:32px; margin-bottom:15px;">💌</div>
+                                <div style="font-size:22px; margin-bottom:15px;">
+                                    Спасибо за ответ!
+                                </div>
+                                <div>
+                                    Нам будет тебя не хватать, но мы очень ценим твой ответ<br>
+                                    и тёплые пожелания! ❤️
+                                </div>
+                            </div>
+                        `;
+                    }
 
-    if (attendance.includes('Обязательно')) {
-        successMessage = `
-            <div style="text-align:center;">
-                <div style="font-size:32px; margin-bottom:15px;">❤️</div>
-                <div style="font-size:22px; margin-bottom:15px;">
-                    Спасибо за ответ!
-                </div>
-                <div>
-                    Мы очень рады, что ты будешь с нами в этот особенный день!<br><br>
-                    До встречи на нашей свадьбе! 💍
-                </div>
-            </div>
-        `;
-    } else {
-        successMessage = `
-            <div style="text-align:center;">
-                <div style="font-size:32px; margin-bottom:15px;">💌</div>
-                <div style="font-size:22px; margin-bottom:15px;">
-                    Спасибо за ответ!
-                </div>
-                <div>
-                    Нам будет тебя не хватать, но мы очень ценим твой ответ<br>
-                    и тёплые пожелания! ❤️
-                </div>
-            </div>
-        `;
-    }
-
-    successBox.innerHTML = successMessage;
-    successBox.style.display = 'block';
-}
-
+                    successBox.innerHTML = successMessage;
+                    successBox.style.display = 'block';
+                }
             } else {
-                console.log(result);
-                alert('Ошибка отправки анкеты');
+                console.log('Ошибка Worker:', result);
+
+                if (successBox) {
+                    successBox.innerHTML = `
+                        <div style="text-align:center;">
+                            <div style="font-size:32px; margin-bottom:15px;">⚠️</div>
+                            <div style="font-size:22px; margin-bottom:15px;">
+                                Не удалось отправить анкету
+                            </div>
+                            <div>
+                                К сожалению, произошла ошибка.<br>
+                                Пожалуйста, попробуйте ещё раз через несколько секунд.
+                            </div>
+                        </div>
+                    `;
+                    successBox.style.display = 'block';
+                }
             }
         })
         .catch(function (error) {
-            console.log(error);
-            alert('Не удалось отправить анкету');
+            console.log('Ошибка отправки:', error);
+
+            if (successBox) {
+                successBox.innerHTML = `
+                    <div style="text-align:center;">
+                        <div style="font-size:32px; margin-bottom:15px;">⚠️</div>
+                        <div style="font-size:22px; margin-bottom:15px;">
+                            Не удалось отправить анкету
+                        </div>
+                        <div>
+                            К сожалению, произошла ошибка.<br>
+                            Пожалуйста, попробуйте ещё раз через несколько секунд.
+                        </div>
+                    </div>
+                `;
+                successBox.style.display = 'block';
+            }
         })
         .finally(function () {
             if (button) {
