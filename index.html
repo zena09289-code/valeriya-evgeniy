@@ -28545,7 +28545,8 @@ id="molecule-1777316287817000001">
         }
 
         function onResponseMessage(event) {
-            if (event.source !== transportFrame.contentWindow) return;
+            // Apps Script может отправить postMessage из вложенного iframe после редиректа.
+            // Поэтому проверяем уникальный requestId и метку источника ниже, а не event.source.
             const result = event.data;
             if (!result || result.source !== 'wedding-rsvp' || result.requestId !== requestId) return;
 
