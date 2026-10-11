@@ -28488,16 +28488,11 @@ id="molecule-1777316287817000001">
         transportForm.appendChild(payloadInput);
 
         let completed = false;
-        let pollTimer = null;
         let timeoutId = null;
-        let activeStatusScript = null;
-        let pollAttempts = 0;
 
         function cleanup() {
-            if (pollTimer) window.clearTimeout(pollTimer);
             if (timeoutId) window.clearTimeout(timeoutId);
-            if (window[callbackName]) delete window[callbackName];
-            if (activeStatusScript && activeStatusScript.parentNode) activeStatusScript.parentNode.removeChild(activeStatusScript);
+            window.removeEventListener('message', messageListener);
             if (transportForm.parentNode) transportForm.parentNode.removeChild(transportForm);
             if (transportFrame.parentNode) transportFrame.parentNode.removeChild(transportFrame);
             form.dataset.rsvpSending = 'false';
@@ -28516,31 +28511,52 @@ id="molecule-1777316287817000001">
         }
 
         function showSuccess() {
+            // Как в присланном примере: очищаем анкету, скрываем поля и показываем благодарность.
             form.reset();
-            if (inputsBox) inputsBox.style.display = 'none';
+
+            if (inputsBox) {
+                inputsBox.style.display = 'none';
+            }
+
             if (!successBox) return;
 
-            const successMessage = attendance.includes('Обязательно') ? `
-                <div style="text-align:center;">
-                    <div style="font-size:32px; margin-bottom:15px;">❤️</div>
-                    <div style="font-size:22px; margin-bottom:15px;">Спасибо за ответ!</div>
-                    <div>Мы очень рады, что ты будешь с нами в этот особенный день!<br><br>До встречи на нашей свадьбе! 💍</div>
-                </div>` : `
-                <div style="text-align:center;">
-                    <div style="font-size:32px; margin-bottom:15px;">💌</div>
-                    <div style="font-size:22px; margin-bottom:15px;">Спасибо за ответ!</div>
-                    <div>Нам будет тебя не хватать, но мы очень ценим твой ответ<br>и тёплые пожелания! ❤️</div>
-                </div>`;
+            let successMessage;
+
+            if (attendance.includes('Обязательно')) {
+                successMessage = `
+                    <div style="text-align:center;">
+                        <div style="font-size:32px; margin-bottom:15px;">❤️</div>
+                        <div style="font-size:22px; margin-bottom:15px;">
+                            Спасибо за ответ!
+                        </div>
+                        <div>
+                            Мы очень рады, что ты будешь с нами в этот особенный день!<br><br>
+                            До встречи на нашей свадьбе! 💍
+                        </div>
+                    </div>
+                `;
+            } else {
+                successMessage = `
+                    <div style="text-align:center;">
+                        <div style="font-size:32px; margin-bottom:15px;">💌</div>
+                        <div style="font-size:22px; margin-bottom:15px;">
+                            Спасибо за ответ!
+                        </div>
+                        <div>
+                            Нам будет тебя не хватать, но мы очень ценим твой ответ<br>
+                            и тёплые пожелания! ❤️
+                        </div>
+                    </div>
+                `;
+            }
+
             successBox.innerHTML = successMessage;
             successBox.style.display = 'block';
         }
 
         function handleResult(result) {
-            if (completed || !result || result.requestId !== requestId) return;
-            if (result.pending) {
-                schedulePoll(1200);
-                return;
-            }
+            if (completed || !result || typeof result !== 'object') return;
+            if (result.source !== 'wedding-rsvp' || result.requestId !== requestId) return;
 
             completed = true;
             cleanup();
@@ -28556,47 +28572,27 @@ id="molecule-1777316287817000001">
             }
         }
 
-        window[callbackName] = handleResult;
-
-        function schedulePoll(delay) {
-            if (completed) return;
-            if (pollTimer) window.clearTimeout(pollTimer);
-            pollTimer = window.setTimeout(pollStatus, delay);
+        // Google Apps Script возвращает результат из iframe через postMessage.
+        // Раньше страница опрашивала JSONP-статус, хотя обработчик отправлял postMessage,
+        // поэтому подтверждение не находилось и показывалось сообщение о тайм-ауте.
+        function messageListener(event) {
+            if (event.source !== transportFrame.contentWindow) return;
+            handleResult(event.data);
         }
 
-        function pollStatus() {
-            if (completed) return;
-            pollAttempts += 1;
-            if (activeStatusScript && activeStatusScript.parentNode) activeStatusScript.parentNode.removeChild(activeStatusScript);
-
-            const script = document.createElement('script');
-            activeStatusScript = script;
-            script.async = true;
-            script.src = APP_SCRIPT_URL +
-                '?status=' + encodeURIComponent(requestId) +
-                '&callback=' + encodeURIComponent(callbackName) +
-                '&_=' + Date.now();
-            script.onerror = function () {
-                if (script.parentNode) script.parentNode.removeChild(script);
-                if (activeStatusScript === script) activeStatusScript = null;
-                schedulePoll(1500);
-            };
-            document.head.appendChild(script);
-            if (pollAttempts === 1) {
-                timeoutId = window.setTimeout(function () {
-                    if (completed) return;
-                    completed = true;
-                    cleanup();
-                    showFailure('Сервер не вернул подтверждение вовремя. Анкета могла уже сохраниться; проверьте Google Таблицу и почту перед повторной отправкой.');
-                }, 60000);
-            }
-        }
+        window.addEventListener('message', messageListener);
 
         document.body.appendChild(transportFrame);
         document.body.appendChild(transportForm);
+        timeoutId = window.setTimeout(function () {
+            if (completed) return;
+            completed = true;
+            cleanup();
+            showFailure('Сервер не вернул подтверждение вовремя. Анкета могла уже сохраниться; проверьте Google Таблицу и почту перед повторной отправкой.');
+        }, 60000);
+
         try {
             transportForm.submit();
-            schedulePoll(1200);
         } catch (error) {
             completed = true;
             cleanup();
