@@ -28430,9 +28430,8 @@ id="molecule-1777316287817000001">
 <script>
 (function () {
     const form = document.getElementById('form2210452671');
-
     if (!form) {
-        console.log('Форма не найдена');
+        console.error('Форма не найдена: form2210452671');
         return;
     }
 
@@ -28440,15 +28439,16 @@ id="molecule-1777316287817000001">
 
     form.addEventListener('submit', function (e) {
         e.preventDefault();
-
+        e.stopPropagation();
+        if (typeof e.stopImmediatePropagation === 'function') e.stopImmediatePropagation();
         if (form.dataset.rsvpSending === 'true') return;
 
-        const name = form.querySelector('[name="Имя"]')?.value || 'Не указано';
+        const name = form.querySelector('[name="Имя"]')?.value?.trim() || 'Не указано';
         const attendance = form.querySelector('[name="Подтверждение"]:checked')?.value || 'Не выбрано';
         const drinks = Array.from(form.querySelectorAll('input[type="checkbox"]:checked'))
             .map(function (item) { return item.value; })
             .join(', ') || 'Не выбрано';
-        const comment = form.querySelector('[name="Музыка"]')?.value || 'Нет комментария';
+        const comment = form.querySelector('[name="Музыка"]')?.value?.trim() || 'Нет комментария';
 
         const text =
             '💌 НОВАЯ АНКЕТА НА СВАДЬБУ!\n\n' +
@@ -28460,16 +28460,14 @@ id="molecule-1777316287817000001">
         const button = form.querySelector('button[type="submit"], input[type="submit"]');
         const successBox = form.querySelector('.js-successbox');
         const inputsBox = form.querySelector('.t-form__inputsbox');
-
         form.dataset.rsvpSending = 'true';
         if (button) button.disabled = true;
 
         const requestId = 'rsvp-' + Date.now() + '-' + Math.random().toString(36).slice(2);
-        const callbackName = 'weddingRsvpCallback_' + Date.now() + '_' + Math.random().toString(36).slice(2).replace(/[^a-z0-9]/gi, '');
-        const frameName = 'wedding-rsvp-frame-' + requestId;
+        const frameName = 'wedding-rsvp-frame-' + requestId.replace(/[^a-z0-9_-]/gi, '');
         const transportFrame = document.createElement('iframe');
         transportFrame.name = frameName;
-        transportFrame.title = 'Отправка анкеты';
+        transportFrame.title = 'Подтверждение отправки анкеты';
         transportFrame.style.display = 'none';
         transportFrame.setAttribute('aria-hidden', 'true');
 
@@ -28478,9 +28476,10 @@ id="molecule-1777316287817000001">
         transportForm.action = APP_SCRIPT_URL;
         transportForm.target = frameName;
         transportForm.enctype = 'application/x-www-form-urlencoded';
+        transportForm.acceptCharset = 'UTF-8';
         transportForm.style.display = 'none';
 
-        const payload = { requestId, text, name, attendance, drinks, comment };
+        const payload = { requestId: requestId, text: text, name: name, attendance: attendance, drinks: drinks, comment: comment };
         const payloadInput = document.createElement('input');
         payloadInput.type = 'hidden';
         payloadInput.name = 'payload';
@@ -28500,99 +28499,76 @@ id="molecule-1777316287817000001">
         }
 
         function showFailure(message) {
-            if (!successBox) return;
-            successBox.innerHTML = `
-                <div style="text-align:center;">
-                    <div style="font-size:32px; margin-bottom:15px;">⚠️</div>
-                    <div style="font-size:22px; margin-bottom:15px;">Не удалось подтвердить отправку анкеты</div>
-                    <div>${message || 'Пожалуйста, попробуйте ещё раз через несколько секунд.'}</div>
-                </div>`;
+            if (!successBox) {
+                console.error('Отправка анкеты не подтверждена:', message);
+                return;
+            }
+            successBox.innerHTML = '<div style="text-align:center;">' +
+                '<div style="font-size:32px;margin-bottom:15px;">⚠️</div>' +
+                '<div style="font-size:22px;margin-bottom:15px;">Не удалось подтвердить отправку анкеты</div>' +
+                '<div>' + (message || 'Пожалуйста, попробуйте ещё раз через несколько секунд.') + '</div></div>';
             successBox.style.display = 'block';
         }
 
         function showSuccess() {
-            // Как в присланном примере: очищаем анкету, скрываем поля и показываем благодарность.
             form.reset();
-
-            if (inputsBox) {
-                inputsBox.style.display = 'none';
-            }
-
+            if (inputsBox) inputsBox.style.display = 'none';
             if (!successBox) return;
 
             let successMessage;
-
             if (attendance.includes('Обязательно')) {
-                successMessage = `
-                    <div style="text-align:center;">
-                        <div style="font-size:32px; margin-bottom:15px;">❤️</div>
-                        <div style="font-size:22px; margin-bottom:15px;">
-                            Спасибо за ответ!
-                        </div>
-                        <div>
-                            Мы очень рады, что ты будешь с нами в этот особенный день!<br><br>
-                            До встречи на нашей свадьбе! 💍
-                        </div>
-                    </div>
-                `;
+                successMessage = '<div style="text-align:center;">' +
+                    '<div style="font-size:32px;margin-bottom:15px;">❤️</div>' +
+                    '<div style="font-size:22px;margin-bottom:15px;">Спасибо за ответ!</div>' +
+                    '<div>Мы очень рады, что ты будешь с нами в этот особенный день!<br><br>До встречи на нашей свадьбе! 💍</div></div>';
             } else {
-                successMessage = `
-                    <div style="text-align:center;">
-                        <div style="font-size:32px; margin-bottom:15px;">💌</div>
-                        <div style="font-size:22px; margin-bottom:15px;">
-                            Спасибо за ответ!
-                        </div>
-                        <div>
-                            Нам будет тебя не хватать, но мы очень ценим твой ответ<br>
-                            и тёплые пожелания! ❤️
-                        </div>
-                    </div>
-                `;
+                successMessage = '<div style="text-align:center;">' +
+                    '<div style="font-size:32px;margin-bottom:15px;">💌</div>' +
+                    '<div style="font-size:22px;margin-bottom:15px;">Спасибо за ответ!</div>' +
+                    '<div>Нам будет тебя не хватать, но мы очень ценим твой ответ<br>и тёплые пожелания! ❤️</div></div>';
             }
-
             successBox.innerHTML = successMessage;
             successBox.style.display = 'block';
         }
 
-        function handleResult(result) {
-            if (completed || !result || typeof result !== 'object') return;
-            if (result.source !== 'wedding-rsvp' || result.requestId !== requestId) return;
+        function handleResult(raw) {
+            let result = raw;
+            if (typeof result === 'string') {
+                try { result = JSON.parse(result); } catch (_) { return; }
+            }
+            if (completed || !result || typeof result !== 'object' || typeof result.ok !== 'boolean') return;
+            if (result.source && result.source !== 'wedding-rsvp') return;
+            // Some published older script versions omitted one of these fields.
+            // Match the request when present; the random requestId prevents stale replies.
+            if (result.requestId && result.requestId !== requestId) return;
 
             completed = true;
             cleanup();
-
-            if (result.ok === true && result.sheetOk === true && result.emailOk === true) {
+            if (result.ok === true && result.sheetOk !== false && result.emailOk !== false) {
                 showSuccess();
             } else {
-                console.error('Результат отправки анкеты:', result);
-                const problems = [];
-                if (result.sheetOk === false) problems.push('анкета не сохранена в Google Таблицу');
-                if (result.emailOk === false) problems.push('письмо с Excel не отправлено');
-                showFailure(problems.length ? 'Ошибка: ' + problems.join('; ') + '.' : (result.error || 'Проверьте журнал выполнений и попробуйте позже.'));
+                console.error('Результат обработки анкеты:', result);
+                const issues = [];
+                if (result.sheetOk === false) issues.push('не удалось сохранить анкету в Google Таблицу');
+                if (result.emailOk === false) issues.push('не удалось отправить письмо с Excel');
+                showFailure(issues.length ? 'Ошибка: ' + issues.join('; ') + '.' : (result.error || 'Проверьте Google Таблицу и почту перед повторной отправкой.'));
             }
         }
 
-        // Google Apps Script возвращает результат из iframe через postMessage.
-        // Раньше страница опрашивала JSONP-статус, хотя обработчик отправлял postMessage,
-        // поэтому подтверждение не находилось и показывалось сообщение о тайм-ауте.
         function messageListener(event) {
-            // Google Apps Script may redirect the submitted iframe to googleusercontent.com
-            // or render the response through an internal frame. In these cases,
-            // event.source is not always transportFrame.contentWindow even though
-            // the response is valid. handleResult validates source tag and requestId.
+            // Ответ передаётся через postMessage из HTML-ответа Apps Script.
             handleResult(event.data);
         }
 
         window.addEventListener('message', messageListener);
-
         document.body.appendChild(transportFrame);
         document.body.appendChild(transportForm);
         timeoutId = window.setTimeout(function () {
             if (completed) return;
             completed = true;
             cleanup();
-            showFailure('Сервер не вернул подтверждение вовремя. Анкета могла уже сохраниться; проверьте Google Таблицу и почту перед повторной отправкой.');
-        }, 60000);
+            showFailure('Сервер не вернул подтверждение вовремя. Анкета могла уже сохраниться; перед повторной отправкой проверьте Google Таблицу и почту.');
+        }, 90000);
 
         try {
             transportForm.submit();
@@ -28600,7 +28576,7 @@ id="molecule-1777316287817000001">
             completed = true;
             cleanup();
             console.error('Ошибка отправки анкеты:', error);
-            showFailure('Не удалось отправить запрос. Попробуйте ещё раз.');
+            showFailure('Не удалось отправить запрос. Проверьте соединение и попробуйте ещё раз.');
         }
     }, true);
 })();
