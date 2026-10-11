@@ -28441,7 +28441,7 @@ id="molecule-1777316287817000001">
      * Здесь указывается только адрес Cloudflare Worker.
      * Токен Telegram хранится в Cloudflare Secret и НЕ попадает в HTML.
      */
-    const WORKER_URL = 'https://kiltinmaf.zena09289.workers.dev';
+    const WORKER_URL = 'https://script.google.com/macros/s/AKfycbzZxuo4bCgiork3KA0g4-I1QrDRBof7Ah3R9YFFd_lF5z800AyEBgwPmkOgsDdi7FgI/exec';
 
     form.addEventListener('submit', function (e) {
         e.preventDefault();
@@ -28485,8 +28485,9 @@ id="molecule-1777316287817000001">
         fetch(WORKER_URL, {
             method: 'POST',
             headers: {
-                'Content-Type': 'application/json'
+                'Content-Type': 'text/plain;charset=utf-8'
             },
+            redirect: 'follow',
             body: JSON.stringify({
                 text: text
             })
