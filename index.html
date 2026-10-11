@@ -28436,29 +28436,19 @@ id="molecule-1777316287817000001">
         return;
     }
 
-    /* Адрес веб-приложения Google Apps Script. */
-    const WORKER_URL = 'https://script.google.com/macros/s/AKfycbzZxuo4bCgiork3KA0g4-I1QrDRBof7Ah3R9YFFd_lF5z800AyEBgwPmkOgsDdi7FgI/exec';
+    const APP_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbzZxuo4bCgiork3KA0g4-I1QrDRBof7Ah3R9YFFd_lF5z800AyEBgwPmkOgsDdi7FgI/exec';
 
     form.addEventListener('submit', function (e) {
         e.preventDefault();
 
-        const name =
-            form.querySelector('[name="Имя"]')?.value || 'Не указано';
+        if (form.dataset.rsvpSending === 'true') return;
 
-        const attendance =
-            form.querySelector('[name="Подтверждение"]:checked')?.value ||
-            'Не выбрано';
-
-        const drinks = Array.from(
-            form.querySelectorAll('input[type="checkbox"]:checked')
-        )
-        .map(function (item) {
-            return item.value;
-        })
-        .join(', ') || 'Не выбрано';
-
-        const comment =
-            form.querySelector('[name="Музыка"]')?.value || 'Нет комментария';
+        const name = form.querySelector('[name="Имя"]')?.value || 'Не указано';
+        const attendance = form.querySelector('[name="Подтверждение"]:checked')?.value || 'Не выбрано';
+        const drinks = Array.from(form.querySelectorAll('input[type="checkbox"]:checked'))
+            .map(function (item) { return item.value; })
+            .join(', ') || 'Не выбрано';
+        const comment = form.querySelector('[name="Музыка"]')?.value || 'Нет комментария';
 
         const text =
             '💌 НОВАЯ АНКЕТА НА СВАДЬБУ!\n\n' +
@@ -28467,47 +28457,30 @@ id="molecule-1777316287817000001">
             '🥂 Напитки: ' + drinks + '\n\n' +
             '💬 Комментарий: ' + comment;
 
-        const button = form.querySelector(
-            'button[type="submit"], input[type="submit"]'
-        );
-
+        const button = form.querySelector('button[type="submit"], input[type="submit"]');
         const successBox = form.querySelector('.js-successbox');
         const inputsBox = form.querySelector('.t-form__inputsbox');
 
-        if (button) {
-            button.disabled = true;
-        }
-
-        // Передаём анкету обычной HTML-формой в скрытый iframe.
-        // Это избегает CORS-ошибки, возникающей при чтении ответа Apps Script через fetch.
-        if (form.dataset.rsvpSending === 'true') {
-            return;
-        }
         form.dataset.rsvpSending = 'true';
+        if (button) button.disabled = true;
 
         const requestId = 'rsvp-' + Date.now() + '-' + Math.random().toString(36).slice(2);
+        const callbackName = 'weddingRsvpCallback_' + Date.now() + '_' + Math.random().toString(36).slice(2).replace(/[^a-z0-9]/gi, '');
         const frameName = 'wedding-rsvp-frame-' + requestId;
         const transportFrame = document.createElement('iframe');
         transportFrame.name = frameName;
-        transportFrame.title = 'Результат отправки анкеты';
+        transportFrame.title = 'Отправка анкеты';
         transportFrame.style.display = 'none';
         transportFrame.setAttribute('aria-hidden', 'true');
 
         const transportForm = document.createElement('form');
         transportForm.method = 'POST';
-        transportForm.action = WORKER_URL;
+        transportForm.action = APP_SCRIPT_URL;
         transportForm.target = frameName;
         transportForm.enctype = 'application/x-www-form-urlencoded';
         transportForm.style.display = 'none';
 
-        const payload = {
-            requestId: requestId,
-            text: text,
-            name: name,
-            attendance: attendance,
-            drinks: drinks,
-            comment: comment
-        };
+        const payload = { requestId, text, name, attendance, drinks, comment };
         const payloadInput = document.createElement('input');
         payloadInput.type = 'hidden';
         payloadInput.name = 'payload';
@@ -28515,115 +28488,122 @@ id="molecule-1777316287817000001">
         transportForm.appendChild(payloadInput);
 
         let completed = false;
-        let timeoutId;
+        let pollTimer = null;
+        let timeoutId = null;
+        let activeStatusScript = null;
+        let pollAttempts = 0;
 
-        function finishRequest() {
-            form.dataset.rsvpSending = 'false';
-            if (button) button.disabled = false;
+        function cleanup() {
+            if (pollTimer) window.clearTimeout(pollTimer);
+            if (timeoutId) window.clearTimeout(timeoutId);
+            if (window[callbackName]) delete window[callbackName];
+            if (activeStatusScript && activeStatusScript.parentNode) activeStatusScript.parentNode.removeChild(activeStatusScript);
             if (transportForm.parentNode) transportForm.parentNode.removeChild(transportForm);
             if (transportFrame.parentNode) transportFrame.parentNode.removeChild(transportFrame);
+            form.dataset.rsvpSending = 'false';
+            if (button) button.disabled = false;
         }
 
         function showFailure(message) {
-            if (successBox) {
-                successBox.innerHTML = `
-                    <div style="text-align:center;">
-                        <div style="font-size:32px; margin-bottom:15px;">⚠️</div>
-                        <div style="font-size:22px; margin-bottom:15px;">
-                            Не удалось подтвердить отправку анкеты
-                        </div>
-                        <div>
-                            ${message || 'Пожалуйста, попробуйте ещё раз через несколько секунд.'}
-                        </div>
-                    </div>
-                `;
-                successBox.style.display = 'block';
-            }
+            if (!successBox) return;
+            successBox.innerHTML = `
+                <div style="text-align:center;">
+                    <div style="font-size:32px; margin-bottom:15px;">⚠️</div>
+                    <div style="font-size:22px; margin-bottom:15px;">Не удалось подтвердить отправку анкеты</div>
+                    <div>${message || 'Пожалуйста, попробуйте ещё раз через несколько секунд.'}</div>
+                </div>`;
+            successBox.style.display = 'block';
         }
 
-        function onResponseMessage(event) {
-            // Apps Script может отправить postMessage из вложенного iframe после редиректа.
-            // Поэтому проверяем уникальный requestId и метку источника ниже, а не event.source.
-            const result = event.data;
-            if (!result || result.source !== 'wedding-rsvp' || result.requestId !== requestId) return;
+        function showSuccess() {
+            form.reset();
+            if (inputsBox) inputsBox.style.display = 'none';
+            if (!successBox) return;
+
+            const successMessage = attendance.includes('Обязательно') ? `
+                <div style="text-align:center;">
+                    <div style="font-size:32px; margin-bottom:15px;">❤️</div>
+                    <div style="font-size:22px; margin-bottom:15px;">Спасибо за ответ!</div>
+                    <div>Мы очень рады, что ты будешь с нами в этот особенный день!<br><br>До встречи на нашей свадьбе! 💍</div>
+                </div>` : `
+                <div style="text-align:center;">
+                    <div style="font-size:32px; margin-bottom:15px;">💌</div>
+                    <div style="font-size:22px; margin-bottom:15px;">Спасибо за ответ!</div>
+                    <div>Нам будет тебя не хватать, но мы очень ценим твой ответ<br>и тёплые пожелания! ❤️</div>
+                </div>`;
+            successBox.innerHTML = successMessage;
+            successBox.style.display = 'block';
+        }
+
+        function handleResult(result) {
+            if (completed || !result || result.requestId !== requestId) return;
+            if (result.pending) {
+                schedulePoll(1200);
+                return;
+            }
 
             completed = true;
-            window.removeEventListener('message', onResponseMessage);
-            window.clearTimeout(timeoutId);
+            cleanup();
 
-            if (result.ok === true) {
-                form.reset();
-                if (inputsBox) inputsBox.style.display = 'none';
-
-                if (successBox) {
-                    let successMessage;
-                    if (attendance.includes('Обязательно')) {
-                        successMessage = `
-                            <div style="text-align:center;">
-                                <div style="font-size:32px; margin-bottom:15px;">❤️</div>
-                                <div style="font-size:22px; margin-bottom:15px;">
-                                    Спасибо за ответ!
-                                </div>
-                                <div>
-                                    Мы очень рады, что ты будешь с нами в этот особенный день!<br><br>
-                                    До встречи на нашей свадьбе! 💍
-                                </div>
-                            </div>
-                        `;
-                    } else {
-                        successMessage = `
-                            <div style="text-align:center;">
-                                <div style="font-size:32px; margin-bottom:15px;">💌</div>
-                                <div style="font-size:22px; margin-bottom:15px;">
-                                    Спасибо за ответ!
-                                </div>
-                                <div>
-                                    Нам будет тебя не хватать, но мы очень ценим твой ответ<br>
-                                    и тёплые пожелания! ❤️
-                                </div>
-                            </div>
-                        `;
-                    }
-                    successBox.innerHTML = successMessage;
-                    successBox.style.display = 'block';
-                }
+            if (result.ok === true && result.sheetOk === true && result.emailOk === true) {
+                showSuccess();
             } else {
-                console.error('Ошибка отправки анкеты:', result);
-                const statuses = [];
-                if (result.sheetOk === false) statuses.push('не сохранена в таблице');
-                if (result.emailOk === false) statuses.push('не отправлена на почту');
-                const detail = statuses.length
-                    ? 'Анкета ' + statuses.join(', ') + '. Проверьте настройки и попробуйте ещё раз.'
-                    : 'Пожалуйста, попробуйте ещё раз через несколько секунд.';
-                showFailure(detail);
+                console.error('Результат отправки анкеты:', result);
+                const problems = [];
+                if (result.sheetOk === false) problems.push('анкета не сохранена в Google Таблицу');
+                if (result.emailOk === false) problems.push('письмо с Excel не отправлено');
+                showFailure(problems.length ? 'Ошибка: ' + problems.join('; ') + '.' : (result.error || 'Проверьте журнал выполнений и попробуйте позже.'));
             }
-
-            finishRequest();
         }
 
-        window.addEventListener('message', onResponseMessage);
-        timeoutId = window.setTimeout(function () {
+        window[callbackName] = handleResult;
+
+        function schedulePoll(delay) {
             if (completed) return;
-            window.removeEventListener('message', onResponseMessage);
-            console.error('Тайм-аут ожидания ответа Google Apps Script. Проверьте журнал выполнений.');
-            showFailure('Не удалось получить подтверждение от сервера. Проверьте, не пришла ли анкета уже на почту или в таблицу, чтобы не отправить её повторно.');
-            finishRequest();
-        }, 60000);
+            if (pollTimer) window.clearTimeout(pollTimer);
+            pollTimer = window.setTimeout(pollStatus, delay);
+        }
+
+        function pollStatus() {
+            if (completed) return;
+            pollAttempts += 1;
+            if (activeStatusScript && activeStatusScript.parentNode) activeStatusScript.parentNode.removeChild(activeStatusScript);
+
+            const script = document.createElement('script');
+            activeStatusScript = script;
+            script.async = true;
+            script.src = APP_SCRIPT_URL +
+                '?status=' + encodeURIComponent(requestId) +
+                '&callback=' + encodeURIComponent(callbackName) +
+                '&_=' + Date.now();
+            script.onerror = function () {
+                if (script.parentNode) script.parentNode.removeChild(script);
+                if (activeStatusScript === script) activeStatusScript = null;
+                schedulePoll(1500);
+            };
+            document.head.appendChild(script);
+            if (pollAttempts === 1) {
+                timeoutId = window.setTimeout(function () {
+                    if (completed) return;
+                    completed = true;
+                    cleanup();
+                    showFailure('Сервер не вернул подтверждение вовремя. Анкета могла уже сохраниться; проверьте Google Таблицу и почту перед повторной отправкой.');
+                }, 60000);
+            }
+        }
 
         document.body.appendChild(transportFrame);
         document.body.appendChild(transportForm);
         try {
             transportForm.submit();
+            schedulePoll(1200);
         } catch (error) {
-            window.clearTimeout(timeoutId);
-            window.removeEventListener('message', onResponseMessage);
+            completed = true;
+            cleanup();
             console.error('Ошибка отправки анкеты:', error);
             showFailure('Не удалось отправить запрос. Попробуйте ещё раз.');
-            finishRequest();
         }
-
     }, true);
-
 })();
 </script>
     </body>
