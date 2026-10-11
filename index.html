@@ -28576,7 +28576,10 @@ id="molecule-1777316287817000001">
         // Раньше страница опрашивала JSONP-статус, хотя обработчик отправлял postMessage,
         // поэтому подтверждение не находилось и показывалось сообщение о тайм-ауте.
         function messageListener(event) {
-            if (event.source !== transportFrame.contentWindow) return;
+            // Google Apps Script may redirect the submitted iframe to googleusercontent.com
+            // or render the response through an internal frame. In these cases,
+            // event.source is not always transportFrame.contentWindow even though
+            // the response is valid. handleResult validates source tag and requestId.
             handleResult(event.data);
         }
 
