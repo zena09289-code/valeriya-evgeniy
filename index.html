@@ -28437,9 +28437,8 @@ id="molecule-1777316287817000001">
     }
 
     /*
-     * ВАЖНО:
-     * Здесь указывается только адрес Cloudflare Worker.
-     * Токен Telegram хранится в Cloudflare Secret и НЕ попадает в HTML.
+     * Адрес веб-приложения Google Apps Script.
+     * Секретный токен Telegram хранится в Script Properties и не находится в HTML.
      */
     const WORKER_URL = 'https://script.google.com/macros/s/AKfycbzZxuo4bCgiork3KA0g4-I1QrDRBof7Ah3R9YFFd_lF5z800AyEBgwPmkOgsDdi7FgI/exec';
 
@@ -28482,32 +28481,84 @@ id="molecule-1777316287817000001">
             button.disabled = true;
         }
 
-        fetch(WORKER_URL, {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'text/plain;charset=utf-8'
-            },
-            redirect: 'follow',
-            body: JSON.stringify({
-                text: text
-            })
-        })
-        .then(function (response) {
-            return response.json().catch(function () {
-                return {};
-            });
-        })
-        .then(function (result) {
-            if (result.ok) {
-                form.reset();
+        // Передаём анкету обычной HTML-формой в скрытый iframe.
+        // Это избегает CORS-ошибки, возникающей при чтении ответа Apps Script через fetch.
+        if (form.dataset.rsvpSending === 'true') {
+            return;
+        }
+        form.dataset.rsvpSending = 'true';
 
-                if (inputsBox) {
-                    inputsBox.style.display = 'none';
-                }
+        const requestId = 'rsvp-' + Date.now() + '-' + Math.random().toString(36).slice(2);
+        const frameName = 'wedding-rsvp-frame-' + requestId;
+        const transportFrame = document.createElement('iframe');
+        transportFrame.name = frameName;
+        transportFrame.title = 'Результат отправки анкеты';
+        transportFrame.style.display = 'none';
+        transportFrame.setAttribute('aria-hidden', 'true');
+
+        const transportForm = document.createElement('form');
+        transportForm.method = 'POST';
+        transportForm.action = WORKER_URL;
+        transportForm.target = frameName;
+        transportForm.enctype = 'application/x-www-form-urlencoded';
+        transportForm.style.display = 'none';
+
+        const payload = {
+            requestId: requestId,
+            text: text,
+            name: name,
+            attendance: attendance,
+            drinks: drinks,
+            comment: comment
+        };
+        const payloadInput = document.createElement('input');
+        payloadInput.type = 'hidden';
+        payloadInput.name = 'payload';
+        payloadInput.value = JSON.stringify(payload);
+        transportForm.appendChild(payloadInput);
+
+        let completed = false;
+        let timeoutId;
+
+        function finishRequest() {
+            form.dataset.rsvpSending = 'false';
+            if (button) button.disabled = false;
+            if (transportForm.parentNode) transportForm.parentNode.removeChild(transportForm);
+            if (transportFrame.parentNode) transportFrame.parentNode.removeChild(transportFrame);
+        }
+
+        function showFailure(message) {
+            if (successBox) {
+                successBox.innerHTML = `
+                    <div style="text-align:center;">
+                        <div style="font-size:32px; margin-bottom:15px;">⚠️</div>
+                        <div style="font-size:22px; margin-bottom:15px;">
+                            Не удалось подтвердить отправку анкеты
+                        </div>
+                        <div>
+                            ${message || 'Пожалуйста, попробуйте ещё раз через несколько секунд.'}
+                        </div>
+                    </div>
+                `;
+                successBox.style.display = 'block';
+            }
+        }
+
+        function onResponseMessage(event) {
+            if (event.source !== transportFrame.contentWindow) return;
+            const result = event.data;
+            if (!result || result.source !== 'wedding-rsvp' || result.requestId !== requestId) return;
+
+            completed = true;
+            window.removeEventListener('message', onResponseMessage);
+            window.clearTimeout(timeoutId);
+
+            if (result.ok === true) {
+                form.reset();
+                if (inputsBox) inputsBox.style.display = 'none';
 
                 if (successBox) {
                     let successMessage;
-
                     if (attendance.includes('Обязательно')) {
                         successMessage = `
                             <div style="text-align:center;">
@@ -28535,54 +28586,44 @@ id="molecule-1777316287817000001">
                             </div>
                         `;
                     }
-
                     successBox.innerHTML = successMessage;
                     successBox.style.display = 'block';
                 }
             } else {
-                console.log('Ошибка Worker:', result);
+                console.error('Ошибка отправки анкеты:', result);
+                const statuses = [];
+                if (result.sheetOk === false) statuses.push('не сохранена в таблице');
+                if (result.telegramOk === false) statuses.push('не доставлена в Telegram');
+                if (result.emailOk === false) statuses.push('не отправлена на почту');
+                const detail = statuses.length
+                    ? 'Анкета ' + statuses.join(', ') + '. Проверьте настройки и попробуйте ещё раз.'
+                    : 'Пожалуйста, попробуйте ещё раз через несколько секунд.';
+                showFailure(detail);
+            }
 
-                if (successBox) {
-                    successBox.innerHTML = `
-                        <div style="text-align:center;">
-                            <div style="font-size:32px; margin-bottom:15px;">⚠️</div>
-                            <div style="font-size:22px; margin-bottom:15px;">
-                                Не удалось отправить анкету
-                            </div>
-                            <div>
-                                К сожалению, произошла ошибка.<br>
-                                Пожалуйста, попробуйте ещё раз через несколько секунд.
-                            </div>
-                        </div>
-                    `;
-                    successBox.style.display = 'block';
-                }
-            }
-        })
-        .catch(function (error) {
-            console.log('Ошибка отправки:', error);
+            finishRequest();
+        }
 
-            if (successBox) {
-                successBox.innerHTML = `
-                    <div style="text-align:center;">
-                        <div style="font-size:32px; margin-bottom:15px;">⚠️</div>
-                        <div style="font-size:22px; margin-bottom:15px;">
-                            Не удалось отправить анкету
-                        </div>
-                        <div>
-                            К сожалению, произошла ошибка.<br>
-                            Пожалуйста, попробуйте ещё раз через несколько секунд.
-                        </div>
-                    </div>
-                `;
-                successBox.style.display = 'block';
-            }
-        })
-        .finally(function () {
-            if (button) {
-                button.disabled = false;
-            }
-        });
+        window.addEventListener('message', onResponseMessage);
+        timeoutId = window.setTimeout(function () {
+            if (completed) return;
+            window.removeEventListener('message', onResponseMessage);
+            console.error('Тайм-аут ожидания ответа Google Apps Script. Проверьте журнал выполнений.');
+            showFailure('Не удалось получить подтверждение от сервера. Проверьте, не пришла ли анкета уже в Telegram, на почту или в таблицу, чтобы не отправить её повторно.');
+            finishRequest();
+        }, 60000);
+
+        document.body.appendChild(transportFrame);
+        document.body.appendChild(transportForm);
+        try {
+            transportForm.submit();
+        } catch (error) {
+            window.clearTimeout(timeoutId);
+            window.removeEventListener('message', onResponseMessage);
+            console.error('Ошибка отправки анкеты:', error);
+            showFailure('Не удалось отправить запрос. Попробуйте ещё раз.');
+            finishRequest();
+        }
 
     }, true);
 
