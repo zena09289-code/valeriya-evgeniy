@@ -28436,10 +28436,7 @@ id="molecule-1777316287817000001">
         return;
     }
 
-    /*
-     * Адрес веб-приложения Google Apps Script.
-     * Секретный токен Telegram хранится в Script Properties и не находится в HTML.
-     */
+    /* Адрес веб-приложения Google Apps Script. */
     const WORKER_URL = 'https://script.google.com/macros/s/AKfycbzZxuo4bCgiork3KA0g4-I1QrDRBof7Ah3R9YFFd_lF5z800AyEBgwPmkOgsDdi7FgI/exec';
 
     form.addEventListener('submit', function (e) {
@@ -28594,7 +28591,6 @@ id="molecule-1777316287817000001">
                 console.error('Ошибка отправки анкеты:', result);
                 const statuses = [];
                 if (result.sheetOk === false) statuses.push('не сохранена в таблице');
-                if (result.telegramOk === false) statuses.push('не доставлена в Telegram');
                 if (result.emailOk === false) statuses.push('не отправлена на почту');
                 const detail = statuses.length
                     ? 'Анкета ' + statuses.join(', ') + '. Проверьте настройки и попробуйте ещё раз.'
@@ -28610,7 +28606,7 @@ id="molecule-1777316287817000001">
             if (completed) return;
             window.removeEventListener('message', onResponseMessage);
             console.error('Тайм-аут ожидания ответа Google Apps Script. Проверьте журнал выполнений.');
-            showFailure('Не удалось получить подтверждение от сервера. Проверьте, не пришла ли анкета уже в Telegram, на почту или в таблицу, чтобы не отправить её повторно.');
+            showFailure('Не удалось получить подтверждение от сервера. Проверьте, не пришла ли анкета уже на почту или в таблицу, чтобы не отправить её повторно.');
             finishRequest();
         }, 60000);
 
