@@ -28464,10 +28464,11 @@ id="molecule-1777316287817000001">
         if (button) button.disabled = true;
 
         const requestId = 'rsvp-' + Date.now() + '-' + Math.random().toString(36).slice(2);
+        const callbackName = 'weddingRsvpCallback_' + Date.now() + '_' + Math.random().toString(36).slice(2).replace(/[^a-z0-9]/gi, '');
         const frameName = 'wedding-rsvp-frame-' + requestId.replace(/[^a-z0-9_-]/gi, '');
         const transportFrame = document.createElement('iframe');
         transportFrame.name = frameName;
-        transportFrame.title = 'Подтверждение отправки анкеты';
+        transportFrame.title = 'Отправка анкеты';
         transportFrame.style.display = 'none';
         transportFrame.setAttribute('aria-hidden', 'true');
 
@@ -28488,10 +28489,15 @@ id="molecule-1777316287817000001">
 
         let completed = false;
         let timeoutId = null;
+        let pollTimer = null;
+        let activeStatusScript = null;
+        let pollCount = 0;
 
         function cleanup() {
             if (timeoutId) window.clearTimeout(timeoutId);
-            window.removeEventListener('message', messageListener);
+            if (pollTimer) window.clearTimeout(pollTimer);
+            if (activeStatusScript && activeStatusScript.parentNode) activeStatusScript.parentNode.removeChild(activeStatusScript);
+            try { delete window[callbackName]; } catch (_) { window[callbackName] = undefined; }
             if (transportForm.parentNode) transportForm.parentNode.removeChild(transportForm);
             if (transportFrame.parentNode) transportFrame.parentNode.removeChild(transportFrame);
             form.dataset.rsvpSending = 'false';
@@ -28514,7 +28520,6 @@ id="molecule-1777316287817000001">
             form.reset();
             if (inputsBox) inputsBox.style.display = 'none';
             if (!successBox) return;
-
             let successMessage;
             if (attendance.includes('Обязательно')) {
                 successMessage = '<div style="text-align:center;">' +
@@ -28531,36 +28536,49 @@ id="molecule-1777316287817000001">
             successBox.style.display = 'block';
         }
 
-        function handleResult(raw) {
-            let result = raw;
-            if (typeof result === 'string') {
-                try { result = JSON.parse(result); } catch (_) { return; }
-            }
-            if (completed || !result || typeof result !== 'object' || typeof result.ok !== 'boolean') return;
-            if (result.source && result.source !== 'wedding-rsvp') return;
-            // Some published older script versions omitted one of these fields.
-            // Match the request when present; the random requestId prevents stale replies.
-            if (result.requestId && result.requestId !== requestId) return;
+        function handleResult(result) {
+            if (completed || !result || typeof result !== 'object') return;
+            if (result.source !== 'wedding-rsvp' || result.requestId !== requestId) return;
+            if (result.pending === true) return;
 
             completed = true;
             cleanup();
-            if (result.ok === true && result.sheetOk !== false && result.emailOk !== false) {
+            if (result.ok === true && result.sheetOk === true && result.emailOk === true) {
                 showSuccess();
             } else {
-                console.error('Результат обработки анкеты:', result);
-                const issues = [];
-                if (result.sheetOk === false) issues.push('не удалось сохранить анкету в Google Таблицу');
-                if (result.emailOk === false) issues.push('не удалось отправить письмо с Excel');
-                showFailure(issues.length ? 'Ошибка: ' + issues.join('; ') + '.' : (result.error || 'Проверьте Google Таблицу и почту перед повторной отправкой.'));
+                console.error('Результат отправки анкеты:', result);
+                const problems = [];
+                if (result.sheetOk === false) problems.push('анкета не сохранена в Google Таблицу');
+                if (result.emailOk === false) problems.push('письмо с Excel не отправлено');
+                showFailure(problems.length ? 'Ошибка: ' + problems.join('; ') + '.' : (result.error || 'Проверьте Google Таблицу и почту перед повторной отправкой.'));
             }
         }
 
-        function messageListener(event) {
-            // Ответ передаётся через postMessage из HTML-ответа Apps Script.
-            handleResult(event.data);
+        window[callbackName] = handleResult;
+
+        function pollStatus() {
+            if (completed) return;
+            pollCount += 1;
+            if (activeStatusScript && activeStatusScript.parentNode) activeStatusScript.parentNode.removeChild(activeStatusScript);
+
+            const statusScript = document.createElement('script');
+            activeStatusScript = statusScript;
+            statusScript.async = true;
+            statusScript.src = APP_SCRIPT_URL +
+                '?action=status&requestId=' + encodeURIComponent(requestId) +
+                '&callback=' + encodeURIComponent(callbackName) +
+                '&_=' + Date.now();
+            statusScript.onload = function () {
+                if (statusScript.parentNode) statusScript.parentNode.removeChild(statusScript);
+                if (!completed) pollTimer = window.setTimeout(pollStatus, 1800);
+            };
+            statusScript.onerror = function () {
+                if (statusScript.parentNode) statusScript.parentNode.removeChild(statusScript);
+                if (!completed) pollTimer = window.setTimeout(pollStatus, 2800);
+            };
+            document.head.appendChild(statusScript);
         }
 
-        window.addEventListener('message', messageListener);
         document.body.appendChild(transportFrame);
         document.body.appendChild(transportForm);
         timeoutId = window.setTimeout(function () {
@@ -28568,10 +28586,11 @@ id="molecule-1777316287817000001">
             completed = true;
             cleanup();
             showFailure('Сервер не вернул подтверждение вовремя. Анкета могла уже сохраниться; перед повторной отправкой проверьте Google Таблицу и почту.');
-        }, 90000);
+        }, 120000);
 
         try {
             transportForm.submit();
+            pollTimer = window.setTimeout(pollStatus, 1000);
         } catch (error) {
             completed = true;
             cleanup();
